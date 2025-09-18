@@ -62,7 +62,7 @@ fileprivate struct Tokenizer {
         guard idx < bytes.count else { return nil }
         return bytes[idx]
     }
-    
+
     private mutating func advance(_ n: Int = 1) -> Void {
         idx = Swift.min(bytes.count, idx + n)
     }
@@ -241,7 +241,6 @@ class Kek {
             assertionFailure(error.localizedDescription)
         }
 
-
         // --- Test 3: literal — input содержит marker {11} и literalProvider вернёт 11 байт
         do {
             let input = "(BODY {11}\r\nHello World\r\n)"
@@ -262,6 +261,29 @@ class Kek {
             let v = try parser.parseValue()
             print("Test4:", v)
             // Вы получили структуру вида list([ list([...part1...]), list([...part2...]), atom("MIXED") ])
+        } catch {
+            assertionFailure(error.localizedDescription)
+        }
+
+        // --- Test 5
+        do {
+            let input = "(BODY {21}\r\nФывап Апыап\r\n)"
+            var parser = IMAPParser(input: input)
+            let v = try parser.parseValue()
+            print("Test5:", v)
+            // -> list([atom("BODY"), literal("Hello World")])
+        } catch {
+            assertionFailure(error.localizedDescription)
+        }
+
+        // --- Test 6
+        do {
+            // Валидный IMAP: строка целиком внутри кавычек
+            let input = "(BODY \"=?utf-8?Q?App\\\")?=\")"
+            var parser = IMAPParser(input: input)
+            let v = try parser.parseValue()
+            print("Test6:", v)
+            // -> list([atom("BODY"), string("=?utf-8?Q?App)?=")])
         } catch {
             assertionFailure(error.localizedDescription)
         }
