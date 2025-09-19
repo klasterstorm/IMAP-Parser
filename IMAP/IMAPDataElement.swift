@@ -56,6 +56,24 @@ public enum Token: CustomStringConvertible {
     }
 }
 
+// ============================
+// ASCII константы для читаемости
+// ============================
+fileprivate enum ASCII {
+    static let lparen: UInt8   = 0x28 // (
+    static let rparen: UInt8   = 0x29 // )
+    static let quote: UInt8    = 0x22 // "
+    static let backslash: UInt8 = 0x5C // \
+    static let lbrace: UInt8   = 0x7B // {
+    static let rbrace: UInt8   = 0x7D // }
+    static let space: UInt8    = 0x20 // пробел
+    static let tab: UInt8      = 0x09 // \t
+    static let cr: UInt8       = 0x0D // \r
+    static let lf: UInt8       = 0x0A // \n
+    static let zero: UInt8     = 0x30 // '0'
+    static let nine: UInt8     = 0x39 // '9'
+}
+
 fileprivate struct Tokenizer {
     private let bytes: [UInt8]   // Весь вход IMAP как массив байтов
     private var idx: Int = 0     // Текущая позиция
@@ -89,7 +107,7 @@ fileprivate struct Tokenizer {
     // Пропускаем пробелы, табы и переводы строк (RFC 3501 §9 defines SPACE, CRLF)
     private mutating func skipWhitespace() {
         _ = consumeWhile { b in
-            b == 0x20 || b == 0x09 || b == 0x0D || b == 0x0A
+            b == ASCII.space || b == ASCII.tab || b == ASCII.cr || b == ASCII.lf
         }
     }
 
@@ -99,20 +117,20 @@ fileprivate struct Tokenizer {
         guard let b = peekByte() else { return .eof }
 
         // "(" → начало списка
-        if b == 0x28 { advance(); return .lparen }
+        if b == ASCII.lparen { advance(); return .lparen }
         // ")" → конец списка
-        if b == 0x29 { advance(); return .rparen }
+        if b == ASCII.rparen { advance(); return .rparen }
 
         // Quoted string (RFC 3501 §4.3)
-        if b == 0x22 { // открывающая кавычка "
+        if b == ASCII.quote { // открывающая кавычка "
             advance() // пропускаем её
             var content: [UInt8] = []
             while let ch = peekByte() {
-                if ch == 0x22 { // закрывающая кавычка "
+                if ch == ASCII.quote { // закрывающая кавычка "
                     advance()
                     break
                 }
-                if ch == 0x5C { // backslash "\" — escape
+                if ch == ASCII.backslash { // backslash "\" — escape
                     advance()
                     if let esc = peekByte() {
                         // Добавляем символ после '\'
@@ -129,15 +147,15 @@ fileprivate struct Tokenizer {
         }
 
         // Literal (RFC 3501 §4.3)
-        if b == 0x7B { // '{'
+        if b == ASCII.lbrace { // '{'
             advance()
             // читаем число (длину в байтах)
-            let numBytes = consumeWhile { $0 >= 0x30 && $0 <= 0x39 } // ASCII digits
-            if peekByte() == 0x7D { advance() } // закрывающая '}'
+            let numBytes = consumeWhile { $0 >= ASCII.zero && $0 <= ASCII.nine } // ASCII digits
+            if peekByte() == ASCII.rbrace { advance() } // закрывающая '}'
 
             // после } должен идти CRLF
-            if peekByte() == 0x0D { advance(); if peekByte() == 0x0A { advance() } }
-            else if peekByte() == 0x0A { advance() }
+            if peekByte() == ASCII.cr { advance(); if peekByte() == ASCII.lf { advance() } }
+            else if peekByte() == ASCII.lf { advance() }
 
             let len = Int(String(decoding: numBytes, as: UTF8.self)) ?? 0
 
@@ -151,8 +169,8 @@ fileprivate struct Tokenizer {
             }
 
             // после литерала может быть CRLF → пропускаем
-            if peekByte() == 0x0D { advance(); if peekByte() == 0x0A { advance() } }
-            else if peekByte() == 0x0A { advance() }
+            if peekByte() == ASCII.cr { advance(); if peekByte() == ASCII.lf { advance() } }
+            else if peekByte() == ASCII.lf { advance() }
 
             return .literal(Data(taken))
         }
@@ -160,8 +178,8 @@ fileprivate struct Tokenizer {
         // Atom (RFC 3501 §4.1.2)
         // Читаем символы до пробела или спецсимвола
         let atomBytes = consumeWhile { ch in
-            !(ch == 0x28 || ch == 0x29 || ch == 0x22 || ch == 0x7B ||
-              ch == 0x20 || ch == 0x09 || ch == 0x0D || ch == 0x0A)
+            !(ch == ASCII.lparen || ch == ASCII.rparen || ch == ASCII.quote || ch == ASCII.lbrace ||
+              ch == ASCII.space || ch == ASCII.tab || ch == ASCII.cr || ch == ASCII.lf)
         }
         let atomStr = String(decoding: atomBytes, as: UTF8.self)
         return .atom(atomStr)
@@ -324,6 +342,20 @@ class Kek {
             let v = try parser.parseValue()
             print("Test6:", v)
             // -> list([atom("BODY"), string("=?utf-8?Q?App)?=")])
+        } catch {
+            assertionFailure(error.localizedDescription)
+        }
+
+        // --- Test 7
+        do {
+            let input = #"([PERMANENTFLAGS (\Answered \Flagged \Deleted \Seen \Draft \*)])"#
+            var parser = IMAPParser(input: input)
+            let v = try parser.parseValue()
+            print("Test7:", v)
+
+            // -> Фактический результат:
+            // Test7: list(atom([PERMANENTFLAGS), list(atom(\Answered), atom(\Flagged), atom(\Deleted), atom(\Seen), atom(\Draft), atom(\*)), atom(]))
+
         } catch {
             assertionFailure(error.localizedDescription)
         }
