@@ -43,7 +43,7 @@ struct ContentView: View {
             Text("Select an item")
         }
         .onAppear {
-            Kek.test()
+            IMAPTestCases.test()
         }
     }
 
