@@ -373,6 +373,24 @@ class IMAPTestCases {
 
         chatGptTestsImapStructure()
         chatGptTestsImapLanguages()
+
+        do {
+            let input = "(BODY[HEADER.FIELDS(Importance)]{20}\r\nImportance: high\r\n\r\n)"
+            var parser = IMAPParser(input: input)
+            let v = try parser.parseValue()
+            print("TestXX:", v)
+            // Ожидаемый вывод:
+            // list([
+            //     atom("BODY"),
+            //     list([
+            //         atom("HEADER.FIELDS"),
+            //         list([atom("Importance")])
+            //     ]),
+            //     literal("Importance: high\r\n\r\n")
+            // ])
+        } catch {
+            print("Error:", error)
+        }
     }
 }
 
