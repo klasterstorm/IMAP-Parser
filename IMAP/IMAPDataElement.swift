@@ -36,9 +36,11 @@ public enum IMAPValue: CustomStringConvertible {
 // ============================
 // Превращает "сырую" строку ответа IMAP в последовательность токенов.
 // RFC 3501 §4.1-§4.5 описывают, какие синтаксические элементы поддерживаются.
-public enum Token: CustomStringConvertible {
+public enum Token: CustomStringConvertible, Equatable {
     case lparen               // "(" — начало списка
     case rparen               // ")" — конец списка
+    case lbracket             // "[" – начало списка
+    case rbracket             // "]" – конец списка
     case atom(String)         // Atom — слово (RFC 3501 §4.1.2)
     case quoted(String)       // Quoted string — строка в кавычках (RFC 3501 §4.3)
     case literal(Data)        // Literal — {N}\r\n<data> (RFC 3501 §4.3)
@@ -48,6 +50,8 @@ public enum Token: CustomStringConvertible {
         switch self {
         case .lparen: return "("
         case .rparen: return ")"
+        case .lbracket: return "["
+        case .rbracket: return "]"
         case .atom(let s): return "ATOM(\(s))"
         case .quoted(let s): return "QUOTED(\(s))"
         case .literal(let d): return "LITERAL(\(d.count) bytes)"
@@ -66,6 +70,8 @@ fileprivate enum ASCII {
     static let backslash: UInt8 = 0x5C // \
     static let lbrace: UInt8   = 0x7B // {
     static let rbrace: UInt8   = 0x7D // }
+    static let lbracket: UInt8 = 0x5B // [
+    static let rbracket: UInt8 = 0x5D // ]
     static let space: UInt8    = 0x20 // пробел
     static let tab: UInt8      = 0x09 // \t
     static let cr: UInt8       = 0x0D // \r
@@ -120,6 +126,11 @@ fileprivate struct Tokenizer {
         if b == ASCII.lparen { advance(); return .lparen }
         // ")" → конец списка
         if b == ASCII.rparen { advance(); return .rparen }
+
+        // "[" → начало списка
+        if b == ASCII.lbracket { advance(); return .lbracket }
+        // "]" → конец списка
+        if b == ASCII.rbracket { advance(); return .rbracket }
 
         // Quoted string (RFC 3501 §4.3)
         if b == ASCII.quote { // открывающая кавычка "
@@ -178,8 +189,11 @@ fileprivate struct Tokenizer {
         // Atom (RFC 3501 §4.1.2)
         // Читаем символы до пробела или спецсимвола
         let atomBytes = consumeWhile { ch in
-            !(ch == ASCII.lparen || ch == ASCII.rparen || ch == ASCII.quote || ch == ASCII.lbrace ||
-              ch == ASCII.space || ch == ASCII.tab || ch == ASCII.cr || ch == ASCII.lf)
+            !(ch == ASCII.lparen || ch == ASCII.rparen ||
+              ch == ASCII.lbracket || ch == ASCII.rbracket ||
+              ch == ASCII.quote || ch == ASCII.lbrace ||
+              ch == ASCII.space || ch == ASCII.tab ||
+              ch == ASCII.cr || ch == ASCII.lf)
         }
         let atomStr = String(decoding: atomBytes, as: UTF8.self)
         return .atom(atomStr)
@@ -222,15 +236,13 @@ public struct IMAPParser {
     // Парсинг одного значения IMAP
     public mutating func parseValue() throws -> IMAPValue {
         switch lookahead {
-        case .eof:
-            throw ParserError.unexpectedEOF
-
+        case .eof: throw ParserError.unexpectedEOF
         case .lparen:
-            return try parseList() // RFC 3501 §4.4
-
-        case .rparen:
+            return try parseList(start: .lparen, end: .rparen)
+        case .lbracket:
+            return try parseList(start: .lbracket, end: .rbracket)
+        case .rparen, .rbracket:
             throw ParserError.unexpectedToken(lookahead)
-
         case .atom(let a):
             advance()
             // RFC 3501 §4.5 — NIL
@@ -251,24 +263,23 @@ public struct IMAPParser {
     }
 
     // Парсинг списка (RFC 3501 §4.4)
-    private mutating func parseList() throws -> IMAPValue {
-        guard case .lparen = lookahead else {
+    private mutating func parseList(start: Token, end: Token) throws -> IMAPValue {
+        guard lookahead == start else {
             throw ParserError.unexpectedToken(lookahead)
         }
-        advance() // пропускаем "("
+        advance() // пропускаем открывающую скобку
         var items: [IMAPValue] = []
 
         while true {
-            switch lookahead {
-            case .rparen: // конец списка
+            if lookahead == end {
                 advance()
                 return .list(items)
-            case .eof:
-                throw ParserError.unexpectedEOF
-            default:
-                let v = try parseValue()
-                items.append(v)
             }
+            if lookahead == .eof {
+                throw ParserError.unexpectedEOF
+            }
+            let v = try parseValue()
+            items.append(v)
         }
     }
 }
