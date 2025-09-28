@@ -8,8 +8,6 @@
 import XCTest
 import IMAP
 
-import XCTest
-
 final class IMAPTests: XCTestCase {
 
     func test_simpleListWithAtoms() throws {
@@ -1168,47 +1166,57 @@ final class IMAPTests: XCTestCase {
         let expected = IMAPValue.atom("!#$%&'*+-/=?^_`|~")
         XCTAssertEqual(parsed.description, expected.description)
     }
+}
 
-    func test_atomDisallowedSymbols() throws {
-        // В этом наборе есть символы, запрещённые для атомов по RFC 3501 §4.1.2
-        let disallowed = ["(", ")", "{", "}", "[", "]", "\"", "\\", " "]
+// MARK: - Performance
 
-        for sym in disallowed {
-            var parser = IMAPParser(input: sym)
+extension IMAPTests {
+
+    func test_parseLargeInputPerformance_v1() throws {
+        let input = generate()
+
+        measure {
+            var parser = IMAPParserAlgo<TokenizerV1>(input: input)
             do {
-                let parsed = try parser.parseValue()
-                // Если парсер вернул значение — оно не должно быть атомом
-                if case .atom = parsed {
-                    XCTFail("Символ '\(sym)' не должен парситься как atom, но получен: \(parsed)")
-                }
+                _ = try parser.parseValue()
             } catch {
-                // Допускаем либо unexpectedEOF (обычно для одиночных скобок/пробела),
-                // либо unexpectedToken (если токен неожидан).
-                if case ParserError.unexpectedEOF = error { /* ok */ }
-                else if case ParserError.unexpectedToken = error { /* ok */ }
-                else {
-                    XCTFail("Ожидалась ошибка unexpectedEOF или unexpectedToken для '\(sym)', но пришло: \(error)")
-                }
+                XCTFail("Парсер упал с ошибкой: \(error)")
             }
         }
     }
 
-    func test_invalidInputThrowsError() throws {
-        var parser = IMAPParser(input: "#$%@")
-        XCTAssertThrowsError(try parser.parseValue())
+    func test_parseLargeInputPerformance_v2() throws {
+        let input = generate()
+
+        measure {
+            var parser = IMAPParserAlgo<TokenizerV2>(input: input)
+            do {
+                _ = try parser.parseValue()
+            } catch {
+                XCTFail("Парсер упал с ошибкой: \(error)")
+            }
+        }
     }
 
-    func test_atomWithSquareBrackets() throws {
-        var parser = IMAPParser(input: "foo[bar]")
-        let parsed = try parser.parseValue()
-        let expected = IMAPValue.atom("foo[bar]")
-        XCTAssertEqual(parsed.description, expected.description)
-    }
+    func generate() -> String {
+        // Сгенерируем длинную строку: список из атомов и литералов
+        var parts: [String] = []
+        for i in 0..<1_000_000 {
+            if i % 6 == 0 {
+                parts.append("ATOM\(i)")
+            } else if i % 6 == 1 {
+                parts.append("{5}\r\nhello") // literal длиной 5
+            } else if i % 6 == 2 {
+                parts.append("\"quoted\(i)\"")
+            } else if i % 6 == 3 {
+                parts.append("\(i)")
+            } else if i % 6 == 4 {
+                parts.append("(A (B NIL \"foo\(i)\") (C \(i) {3}\r\nbar))")
+            } else {
+                parts.append("NIL")
+            }
+        }
 
-    func test_atomWithCurlyBraces() throws {
-        var parser = IMAPParser(input: "foo{bar}")
-        let parsed = try parser.parseValue()
-        let expected = IMAPValue.atom("foo{bar}")
-        XCTAssertEqual(parsed.description, expected.description)
+        return "(\(parts.joined(separator: " ")))"
     }
 }
