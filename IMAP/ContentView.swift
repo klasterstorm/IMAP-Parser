@@ -42,9 +42,6 @@ struct ContentView: View {
         } detail: {
             Text("Select an item")
         }
-        .onAppear {
-            IMAPTestCases.test()
-        }
     }
 
     private func addItem() {
